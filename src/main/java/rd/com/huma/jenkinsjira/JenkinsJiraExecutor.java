@@ -11,9 +11,6 @@ import hudson.util.FormValidation;
 import hudson.util.VariableResolver;
 
 import java.io.IOException;
-import java.io.OutputStreamWriter;
-import java.net.HttpURLConnection;
-import java.net.URL;
 
 import javax.servlet.ServletException;
 
@@ -22,27 +19,13 @@ import net.sf.json.JSONObject;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.QueryParameter;
 import org.kohsuke.stapler.StaplerRequest;
-import  org.apache.commons.codec.binary.Base64;
 
 /**
- * Sample {@link Builder}.
  *
- * <p>
- * When the user configures the project and enables this builder,
- * {@link DescriptorImpl#newInstance(StaplerRequest)} is invoked
- * and a new {@link JenkinsJira} is created. The created
- * instance is persisted to the project configuration XML by using
- * XStream, so this allows you to use instance fields (like {@link #name})
- * to remember the configuration.
- *
- * <p>
- * When a build is performed, the {@link #perform(AbstractBuild, Launcher, BuildListener)}
- * method will be invoked.
- *
- * @author Kohsuke Kawaguchi
+ * @author Priamo Germosen
  */
 
-public class JenkinsJira extends Builder {
+public class JenkinsJiraExecutor extends Builder {
 
 
     private String issue;
@@ -52,15 +35,20 @@ public class JenkinsJira extends Builder {
 	private String password;
 	private String url;
 
+	  private transient JiraConfig config;
+
+
 	// Fields in config.jelly must match the parameter names in the "DataBoundConstructor"
     @DataBoundConstructor
-    public JenkinsJira(String url, String jiraUser,  String password,  String issue, String nameField, String value) {
+    public JenkinsJiraExecutor(String url, String jiraUser,  String password,  String issue, String nameField, String value) {
     	this.issue = issue;
     	this.nameField = nameField;
     	this.value = value;
     	this.url = url;
     	this.jiraUser= jiraUser;
     	this.password = password;
+
+    	config = new JiraConfig(jiraUser, password, url, nameField);
     }
     /**
      * We'll use this from the <tt>config.jelly</tt>.
@@ -94,8 +82,9 @@ public class JenkinsJira extends Builder {
 	}
 
 
+
     @Override
-    public boolean perform(AbstractBuild build, Launcher launcher, BuildListener listener) {
+    public boolean perform(AbstractBuild<?, ?> build, Launcher launcher, BuildListener listener) {
 //    	if (getDescriptor().getUrl() == null){
 //    		listener.getLogger().append("URL must have a value");
 //    	}
@@ -104,61 +93,7 @@ public class JenkinsJira extends Builder {
     	String issueConvertido =Util.replaceMacro(issue, resolve);
     	String valorConvertido = Util.replaceMacro(value, resolve);
 
-    	String urlJira = "http://"+ this.jiraUser + ":" + password + "@" + url;
-
-    	;
-    	URL url;
-		try {
-			url = new URL(urlJira + "rest/api/2/issue/" +issueConvertido );
-
-
-			HttpURLConnection httpCon = (HttpURLConnection) url.openConnection() ;
-			httpCon.setRequestMethod("PUT");
-			if (url.getUserInfo() != null) {
-				String basicAuth = "Basic " + new String(new Base64().encode(url.getUserInfo().getBytes()));
-				httpCon.setRequestProperty("Authorization", basicAuth);
-			}
-
-			httpCon.setDoOutput(true);
-			httpCon.setDoInput(true);
-			httpCon.setInstanceFollowRedirects(false);
-			httpCon.setRequestProperty("Content-Type", "application/json");
-			httpCon.setRequestProperty("Accept", "application/json");
-		//	httpCon.setRequestProperty("Authorization", "Basic " + authStringEnc);
-
-
-
-			OutputStreamWriter out = new OutputStreamWriter(
-		    httpCon.getOutputStream());
-
-			String valor =  new StringBuilder().append("{\"fields\" : {\"").append(nameField).append("\" :  \"").append(valorConvertido).append("\"}}").toString();
-			listener.getLogger().println("valor");
-
-			out.write(valor);
-			out.flush();
-			out.close();
-			System.err.println(httpCon.getResponseCode());
-			System.err.println(httpCon.getResponseMessage());
-
-		} catch (IOException e) {
-
-			listener.getLogger().append("Error");
-			listener.getLogger().println(e.getMessage());
-
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-			return false;
-		}
-        return true;
-    }
-
-    private String convertir(VariableResolver resolve, String valor){
-    	Object tmp = resolve.resolve(valor);
-    	if (tmp == null){
-    		return valor;
-    	}
-    	return tmp.toString();
-
+    	return new JiraEventUpdate(config).update(issueConvertido, valorConvertido, listener.getLogger());
     }
 
     // Overridden for better type safety.
@@ -170,7 +105,7 @@ public class JenkinsJira extends Builder {
     }
 
     /**
-     * Descriptor for {@link JenkinsJira}. Used as a singleton.
+     * Descriptor for {@link JenkinsJiraExecutor}. Used as a singleton.
      * The class is marked as public so that it can be accessed from views.
      *
      * <p>
@@ -222,7 +157,8 @@ public class JenkinsJira extends Builder {
             return FormValidation.ok();
         }
 
-        public boolean isApplicable(Class<? extends AbstractProject> aClass) {
+        @Override
+        public boolean isApplicable(@SuppressWarnings("rawtypes") Class<? extends AbstractProject> aClass) {
             // Indicates that this builder can be used with all kinds of project types
             return true;
         }
@@ -231,16 +167,16 @@ public class JenkinsJira extends Builder {
          * This human readable name is used in the configuration screen.
          */
         public String getDisplayName() {
-            return "Configuracion de Jenkins-Jira";
+            return "Configuration of Jenkins-Jira";
         }
 
         @Override
         public boolean configure(StaplerRequest req, JSONObject formData) throws FormException {
             // To persist global configuration information,
             // set that to properties and call save().
-        	this.jiraUser = formData.getString("jiraUser");
-        	this.password = formData.getString("password");
-        	this.url = formData.getString("url");
+//        	this.jiraUser = formData.getString("jiraUser");
+//        	this.password = formData.getString("password");
+//        	this.url = formData.getString("url");
 
             // ^Can also use req.bindJSON(this, formData);
             //  (easier when there are many fields; need set* methods for this, like setUseFrench)
